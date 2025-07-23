@@ -497,7 +497,7 @@ class EAGLEWorker(TpModelWorker):
                 : num_seqs * self.topk * self.speculative_num_steps
             ]
             spec_info.last_page_lens = last_page_lens
-
+        print(f"out_cache_loc: {out_cache_loc}")
         batch.out_cache_loc = out_cache_loc
         batch.seq_lens_sum = torch.sum(batch.seq_lens).item()
         batch.return_hidden_states = False
@@ -624,7 +624,7 @@ class EAGLEWorker(TpModelWorker):
 
             # We don't need to run the last forward. we get 1 token from draft prefill and (#spec steps - 1) tokens here
             # TODO(yubowang): confirm on number of steps
-            if i == self.speculative_num_steps:
+            if i == self.speculative_num_steps - 1:
                 break
 
             # Set inputs
@@ -633,7 +633,8 @@ class EAGLEWorker(TpModelWorker):
             forward_batch.positions.add_(1)
             forward_batch.attn_backend = self.draft_attn_backend.attn_backends[i]
             spec_info.hidden_states = hidden_states
-
+            print(f"forward_batch.input_ids: {forward_batch.input_ids}")
+            print(f"forward_batch.out_cache_loc: {forward_batch.out_cache_loc}")
             # Run forward
             logits_output = self.draft_model_runner.model.forward(
                 forward_batch.input_ids, forward_batch.positions, forward_batch
@@ -816,15 +817,19 @@ class EAGLEWorker(TpModelWorker):
         model_worker_batch = batch.get_model_worker_batch(
             seq_lens_cpu_cache=seq_lens_cpu
         )
+        print(f"seq_lens_cpu: {seq_lens_cpu}")
         model_worker_batch.spec_num_draft_tokens = 1
         forward_batch = ForwardBatch.init_new(
             model_worker_batch, self.draft_model_runner
         )
+        print("DRAFT EXTENDING =================================")
+        print(f"model_worker_batch: {model_worker_batch.out_cache_loc}")
         forward_batch.return_logprob = False
         logits_output, _ = self.draft_model_runner.forward(forward_batch)
         self._detect_nan_if_needed(logits_output)
         assert isinstance(forward_batch.spec_info, EagleDraftInput)
         assert forward_batch.spec_info is batch.spec_info
+        print(f"logits_output: {logits_output}")
         self.capture_for_decode(logits_output, forward_batch.spec_info)
 
     def forward_draft_extend_after_decode(self, batch: ScheduleBatch):
@@ -856,9 +861,14 @@ class EAGLEWorker(TpModelWorker):
                     topk=self.topk,
                     capture_hidden_mode=CaptureHiddenMode.LAST,
                 )
+        # Print everything
+        print(f"batch.spec_info.verified_id: {batch.spec_info.verified_id}")
+        print(f"req_pool_indices_backup: {req_pool_indices_backup}")
+        print(f"batch.seq_lens: {batch.seq_lens}")
         batch.return_hidden_states = False
         model_worker_batch = batch.get_model_worker_batch()
         model_worker_batch.spec_num_draft_tokens = self.speculative_num_steps + 1
+        print(f"model_worker_batch.spec_num_draft_tokens: {model_worker_batch.spec_num_draft_tokens}")
         assert model_worker_batch.capture_hidden_mode == CaptureHiddenMode.LAST
         forward_batch = ForwardBatch.init_new(
             model_worker_batch, self.draft_model_runner
@@ -887,6 +897,7 @@ class EAGLEWorker(TpModelWorker):
                 self.draft_model_runner.attn_backend.init_forward_metadata(
                     forward_batch
                 )
+            print(f"DRAFT EXTEND AFTER DECODE forward_batch.out_cache_loc: {forward_batch.out_cache_loc}")
             logits_output = self.draft_model_runner.model.forward(
                 forward_batch.input_ids, forward_batch.positions, forward_batch
             )

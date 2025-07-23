@@ -989,18 +989,24 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         extend_num_tokens: int,
         backup_state: bool = False,
     ):
+        print("prefix_lens:", prefix_lens)
+        print("seq_lens:", seq_lens)
+        print("last_loc:", last_loc)
+        print("extend_num_tokens:", extend_num_tokens)
         num_tokens = (
             extend_num_tokens
             + len(seq_lens) * self.token_to_kv_pool_allocator.page_size
         )
         self._evict_tree_cache_if_needed(num_tokens)
-
+        print("EXTEND_NUM_TOKENS:", extend_num_tokens)
         if backup_state:
             state = self.token_to_kv_pool_allocator.backup_state()
 
         out_cache_loc = self.token_to_kv_pool_allocator.alloc_extend(
             prefix_lens, seq_lens, last_loc, extend_num_tokens
         )
+        print("out_cache_loc:", out_cache_loc)
+        torch.distributed.breakpoint()
         if out_cache_loc is None:
             error_msg = (
                 f"Prefill out of memory. Try to lower your batch size.\n"

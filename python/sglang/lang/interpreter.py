@@ -153,7 +153,7 @@ def run_program_batch(
     else:
         if progress_bar:
             pbar = tqdm.tqdm(total=len(batch_arguments))
-
+        print(f"num_threads: {num_threads}")
         with ThreadPoolExecutor(num_threads) as executor:
             futures = []
             for arguments in batch_arguments:

@@ -461,7 +461,15 @@ class PagedTokenToKVPoolAllocator(BaseTokenToKVPoolAllocator):
             self.page_size,
             next_power_of_2(extend_num_tokens),
         )
-
+        print("Allocating extend==============")
+        print("prefix_lens:", prefix_lens)
+        print("seq_lens:", seq_lens)
+        print("last_loc:", last_loc)
+        print("extend_num_tokens:", extend_num_tokens)
+        print("bs:", bs)
+        print("out_indices:", out_indices)
+        print("self.ret_values:", self.ret_values)
+        print("=============================")
         if self.debug_mode:
             assert len(torch.unique(out_indices)) == len(out_indices)
 

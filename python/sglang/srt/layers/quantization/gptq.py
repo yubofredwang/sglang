@@ -52,8 +52,8 @@ from sglang.srt.utils import is_cuda
 
 _is_cuda = is_cuda()
 
-if _is_cuda:
-    from sgl_kernel import fused_marlin_moe
+# if _is_cuda:
+    # from sgl_kernel import fused_marlin_moe
 
 
 logger = logging.getLogger(__name__)
