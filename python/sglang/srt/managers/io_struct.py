@@ -830,6 +830,13 @@ class BatchTokenIDOutput(BaseBatchReq):
     spec_verify_ct: List[int]
     spec_accepted_tokens: List[int]
 
+    # Speculative per-stage average times (seconds), per request
+    spec_avg_time_forward_target_extend: List[float]
+    spec_avg_time_forward_draft_extend: List[float]
+    spec_avg_time_draft: List[float]
+    spec_avg_time_verify: List[float]
+    spec_avg_time_forward_draft_extend_after_decode: List[float]
+
     # Logprobs
     input_token_logprobs_val: List[float]
     input_token_logprobs_idx: List[int]
@@ -905,6 +912,13 @@ class BatchStrOutput(BaseBatchReq):
     cached_tokens: List[int]
     spec_verify_ct: List[int]
     spec_accepted_tokens: List[int]
+
+    # Speculative per-stage average times (seconds), per request
+    spec_avg_time_forward_target_extend: List[float]
+    spec_avg_time_forward_draft_extend: List[float]
+    spec_avg_time_draft: List[float]
+    spec_avg_time_verify: List[float]
+    spec_avg_time_forward_draft_extend_after_decode: List[float]
 
     # Logprobs
     input_token_logprobs_val: List[float]

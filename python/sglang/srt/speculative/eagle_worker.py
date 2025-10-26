@@ -248,13 +248,29 @@ class EAGLEWorker(TpModelWorker):
             the batch id (used for overlap schedule), and number of accepted tokens.
         """
         if batch.forward_mode.is_extend() or batch.is_extend_in_batch:
+            tic = time.perf_counter()
             logits_output, next_token_ids, seq_lens_cpu = self.forward_target_extend(
                 batch
             )
+            toc = time.perf_counter()
+            # Accumulate per-request total time for target extend stage for this batch
+            dur_target_extend = toc - tic
+            for req in batch.reqs:
+                req.spec_time_forward_target_extend_total += dur_target_extend
+            # Accumulate batch-level target-extend time
+            # print(f"Target extend time: {(toc - tic) * 1000} ms")
+
             with self.draft_tp_context(self.draft_model_runner.tp_group):
+                tic2 = time.perf_counter()
                 self.forward_draft_extend(
                     batch, logits_output.hidden_states, next_token_ids, seq_lens_cpu
                 )
+                toc2 = time.perf_counter()
+                # Accumulate per-request total time for draft extend stage for this batch
+                dur_draft_extend = toc2 - tic2
+                for req in batch.reqs:
+                    req.spec_time_forward_draft_extend_total += dur_draft_extend
+                # print(f"Draft extend time: {(toc2 - tic2) * 1000} ms")
             return GenerationBatchResult(
                 logits_output=logits_output,
                 next_token_ids=next_token_ids,
@@ -263,10 +279,26 @@ class EAGLEWorker(TpModelWorker):
             )
         else:
             with self.draft_tp_context(self.draft_model_runner.tp_group):
+                tic_draft = time.perf_counter()
                 spec_info = self.draft(batch)
+                toc_draft = time.perf_counter()
+                # print(f"Draft time: {(toc_draft - tic_draft) * 1000} ms")
+                # Accumulate per-request total time for draft stage for this batch
+                dur_draft = toc_draft - tic_draft
+                for req in batch.reqs:
+                    req.spec_time_draft_total += dur_draft
+
+            tic_verify = time.perf_counter()
             logits_output, verify_output, model_worker_batch, can_run_cuda_graph = (
                 self.verify(batch, spec_info)
             )
+            toc_verify = time.perf_counter()
+            # print(f"Verify time: {(toc_verify - tic_verify) * 1000} ms")
+             # Accumulate per-request total time for verify stage for this batch
+            dur_verify = toc_verify - tic_verify
+            for req in batch.reqs:
+                req.spec_time_verify_total += dur_verify
+            batch._spec_verify_rounds = getattr(batch, "_spec_verify_rounds", 0) + 1
 
             with self.draft_tp_context(self.draft_model_runner.tp_group):
                 # NOTE: We should use `check_forward_draft_extend_after_decode`
@@ -276,7 +308,14 @@ class EAGLEWorker(TpModelWorker):
                     or batch.spec_info.verified_id.shape[0] > 0
                 ):
                     # decode is not finished
+                    tic_ext_after = time.perf_counter()
                     self.forward_draft_extend_after_decode(batch)
+                    toc_ext_after = time.perf_counter()
+                    # print(f"Draft extend after decode time: {(toc_ext_after - tic_ext_after) * 1000} ms")
+                    # Accumulate per-request total time for draft extend after decode stage for this batch
+                    dur_ext_after = toc_ext_after - tic_ext_after
+                    for req in batch.reqs:
+                        req.spec_time_forward_draft_extend_after_decode_total += dur_ext_after
 
             return GenerationBatchResult(
                 logits_output=logits_output,

@@ -2441,7 +2441,7 @@ class Scheduler(
                 avg_spec_accept_length = (
                     self.spec_total_num_accepted_tokens / self.spec_total_num_forward_ct
                 )
-                logger.info(f"{avg_spec_accept_length=}")
+                print(f"Average accept length: {avg_spec_accept_length=}")
             self.spec_total_num_accepted_tokens = self.spec_total_num_forward_ct = 0
             for k, v in server_args_dict.items():
                 setattr(get_global_server_args(), k, v)

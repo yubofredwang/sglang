@@ -618,6 +618,14 @@ class Req:
         # This is used to compute the acceptance rate and average acceptance length per request.
         self.spec_accepted_tokens = 0
 
+        # Speculative decoding per-stage accumulated times (seconds) across the life of this request
+        # These are accumulated over multiple batch runs and reset only per-batch local timers in workers
+        self.spec_time_forward_target_extend_total: float = 0.0
+        self.spec_time_forward_draft_extend_total: float = 0.0
+        self.spec_time_draft_total: float = 0.0
+        self.spec_time_verify_total: float = 0.0
+        self.spec_time_forward_draft_extend_after_decode_total: float = 0.0
+
         # For metrics
         self.metrics_collector = metrics_collector
         self.time_stats: TimeStats = TimeStats(disagg_mode=disagg_mode)
