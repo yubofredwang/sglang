@@ -140,14 +140,14 @@ def _handle_output_by_index(output, i):
                 if len(output.spec_accepted_tokens) > i
                 else None
             ),
-            spec_avg_time_forward_target_extend=(
-                [output.spec_avg_time_forward_target_extend[i]]
-                if output.spec_avg_time_forward_target_extend
+            spec_time_forward_target_extend=(
+                [output.spec_time_forward_target_extend[i]]
+                if output.spec_time_forward_target_extend
                 else None
             ),
-            spec_avg_time_forward_draft_extend=(
-                [output.spec_avg_time_forward_draft_extend[i]]
-                if output.spec_avg_time_forward_draft_extend
+            spec_time_forward_draft_extend=(
+                [output.spec_time_forward_draft_extend[i]]
+                if output.spec_time_forward_draft_extend
                 else None
             ),
             spec_avg_time_draft=(
@@ -160,9 +160,9 @@ def _handle_output_by_index(output, i):
                 if output.spec_avg_time_verify
                 else None
             ),
-            spec_avg_time_forward_draft_extend_after_decode=(
-                [output.spec_avg_time_forward_draft_extend_after_decode[i]]
-                if output.spec_avg_time_forward_draft_extend_after_decode
+            spec_time_forward_draft_extend_after_decode=(
+                [output.spec_time_forward_draft_extend_after_decode[i]]
+                if output.spec_time_forward_draft_extend_after_decode
                 else None
             ),
             input_token_logprobs_val=(
@@ -292,14 +292,14 @@ def _handle_output_by_index(output, i):
                 if len(output.spec_accepted_tokens) > i
                 else None
             ),
-            spec_avg_time_forward_target_extend=(
-                [output.spec_avg_time_forward_target_extend[i]]
-                if output.spec_avg_time_forward_target_extend
+            spec_time_forward_target_extend=(
+                [output.spec_time_forward_target_extend[i]]
+                if output.spec_time_forward_target_extend
                 else None
             ),
-            spec_avg_time_forward_draft_extend=(
-                [output.spec_avg_time_forward_draft_extend[i]]
-                if output.spec_avg_time_forward_draft_extend
+            spec_time_forward_draft_extend=(
+                [output.spec_time_forward_draft_extend[i]]
+                if output.spec_time_forward_draft_extend
                 else None
             ),
             spec_avg_time_draft=(
@@ -312,9 +312,9 @@ def _handle_output_by_index(output, i):
                 if output.spec_avg_time_verify
                 else None
             ),
-            spec_avg_time_forward_draft_extend_after_decode=(
-                [output.spec_avg_time_forward_draft_extend_after_decode[i]]
-                if output.spec_avg_time_forward_draft_extend_after_decode
+            spec_time_forward_draft_extend_after_decode=(
+                [output.spec_time_forward_draft_extend_after_decode[i]]
+                if output.spec_time_forward_draft_extend_after_decode
                 else None
             ),
             input_token_logprobs_val=(

@@ -1424,11 +1424,11 @@ class TokenizerManager(TokenizerCommunicatorMixin):
                 if self.server_args.speculative_algorithm:
                     self._calculate_spec_decoding_metrics(meta_info, recv_obj, i)
                     # Attach per-stage speculative average times to meta_info if available
-                    meta_info["spec_avg_time_forward_target_extend"] = recv_obj.spec_avg_time_forward_target_extend[i]
-                    meta_info["spec_avg_time_forward_draft_extend"] = recv_obj.spec_avg_time_forward_draft_extend[i]
+                    meta_info["spec_time_forward_target_extend"] = recv_obj.spec_time_forward_target_extend[i]
+                    meta_info["spec_time_forward_draft_extend"] = recv_obj.spec_time_forward_draft_extend[i]
                     meta_info["spec_avg_time_draft"] = recv_obj.spec_avg_time_draft[i]
                     meta_info["spec_avg_time_verify"] = recv_obj.spec_avg_time_verify[i]
-                    meta_info["spec_avg_time_forward_draft_extend_after_decode"] = recv_obj.spec_avg_time_forward_draft_extend_after_decode[i]
+                    meta_info["spec_time_forward_draft_extend_after_decode"] = recv_obj.spec_time_forward_draft_extend_after_decode[i]
                 state.finished_time = time.time()
                 meta_info["e2e_latency"] = state.finished_time - state.created_time
                 print(f"e2e_latency: {meta_info['e2e_latency']}")

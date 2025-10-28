@@ -91,6 +91,19 @@ class RequestFuncOutput:
     prompt_len: int = 0
     error: str = ""
     output_len: int = 0
+    cached_tokens: int = 0
+    # Speculative decoding per-request timing metrics (seconds)
+    spec_time_forward_target_extend: Optional[float] = None
+    spec_time_forward_draft_extend: Optional[float] = None
+    spec_avg_time_draft: Optional[float] = None
+    spec_avg_time_verify: Optional[float] = None
+    spec_time_forward_draft_extend_after_decode: Optional[float] = None
+    # Speculative verification count
+    spec_verify_ct: Optional[int] = None
+    # Derived per-request times (seconds)
+    request_average_draft_time: Optional[float] = None
+    request_average_verify_time: Optional[float] = None
+    request_average_draft_extend_after_decode: Optional[float] = None
 
     @staticmethod
     def init_new(request_func_input: RequestFuncInput):
@@ -515,6 +528,8 @@ async def async_request_sglang_generate(
             ("text" if isinstance(prompt, str) else "input_ids"): prompt,
             "sampling_params": {
                 "temperature": 0.0,
+                "top_k": 100,
+                "top_p": 0.95,
                 "max_new_tokens": request_func_input.output_len,
                 "ignore_eos": not args.disable_ignore_eos,
             },
@@ -563,7 +578,9 @@ async def async_request_sglang_generate(
                                 timestamp = time.perf_counter()
                                 generated_text = data["text"]
                                 output_len = data["meta_info"]["completion_tokens"]
-
+                                cached_tokens = (data.get("meta_info") or {}).get(
+                                    "cached_tokens", 0
+                                )
                                 # First token
                                 if ttft == 0.0:
                                     ttft = time.perf_counter() - st
@@ -582,6 +599,52 @@ async def async_request_sglang_generate(
                                 most_recent_timestamp = timestamp
                                 last_output_len = output_len
 
+                                # Capture speculative timing metrics from meta_info if present
+                                meta_info = data.get("meta_info") or {}
+                                if meta_info:
+                                    if (
+                                        output.spec_verify_ct is None
+                                        and "spec_verify_ct" in meta_info
+                                    ):
+                                        output.spec_verify_ct = meta_info["spec_verify_ct"]
+                                    if (
+                                        output.spec_time_forward_target_extend is None
+                                        and "spec_time_forward_target_extend" in meta_info
+                                    ):
+                                        output.spec_time_forward_target_extend = meta_info[
+                                            "spec_time_forward_target_extend"
+                                        ]
+                                    if (
+                                        output.spec_time_forward_draft_extend is None
+                                        and "spec_time_forward_draft_extend" in meta_info
+                                    ):
+                                        output.spec_time_forward_draft_extend = meta_info[
+                                            "spec_time_forward_draft_extend"
+                                        ]
+                                    if (
+                                        output.spec_avg_time_draft is None
+                                        and "spec_avg_time_draft" in meta_info
+                                    ):
+                                        output.spec_avg_time_draft = meta_info[
+                                            "spec_avg_time_draft"
+                                        ]
+                                    if (
+                                        output.spec_avg_time_verify is None
+                                        and "spec_avg_time_verify" in meta_info
+                                    ):
+                                        output.spec_avg_time_verify = meta_info[
+                                            "spec_avg_time_verify"
+                                        ]
+                                    if (
+                                        output.spec_time_forward_draft_extend_after_decode
+                                        is None
+                                        and "spec_time_forward_draft_extend_after_decode"
+                                        in meta_info
+                                    ):
+                                        output.spec_time_forward_draft_extend_after_decode = meta_info[
+                                            "spec_time_forward_draft_extend_after_decode"
+                                        ]
+                    output.cached_tokens = cached_tokens
                     output.generated_text = generated_text
                     output.success = True
                     output.latency = latency
@@ -804,6 +867,10 @@ def get_dataset(args, tokenizer, model_id=None):
 
         # Limit the number of requests based on --num-prompts
         input_requests = all_requests_data[: args.num_prompts]
+    elif args.dataset_name == "custom":
+        input_requests = load_eval_dataset(
+            args.dataset_path, tokenizer, args.num_prompts, 800
+        )
     else:
         raise ValueError(f"Unknown dataset: {args.dataset_name}")
     return input_requests
@@ -832,10 +899,12 @@ class BenchmarkMetrics:
     total_input_vision: int
     total_output: int
     total_output_retokenized: int
+    total_cached_tokens: int
     request_throughput: float
     input_throughput: float
     output_throughput: float
     output_throughput_retokenized: float
+    cached_tokens_throughput: float
     total_throughput: float
     total_throughput_retokenized: float
     mean_ttft_ms: float
@@ -857,6 +926,32 @@ class BenchmarkMetrics:
     std_e2e_latency_ms: float
     p99_e2e_latency_ms: float
     concurrency: float
+    # Aggregated speculative metrics (ms)
+    mean_spec_time_forward_target_extend_ms: Optional[float] = None
+    median_spec_time_forward_target_extend_ms: Optional[float] = None
+    p99_spec_time_forward_target_extend_ms: Optional[float] = None
+    mean_spec_time_forward_draft_extend_ms: Optional[float] = None
+    median_spec_time_forward_draft_extend_ms: Optional[float] = None
+    p99_spec_time_forward_draft_extend_ms: Optional[float] = None
+    mean_spec_avg_time_draft_ms: Optional[float] = None
+    median_spec_avg_time_draft_ms: Optional[float] = None
+    p99_spec_avg_time_draft_ms: Optional[float] = None
+    mean_spec_avg_time_verify_ms: Optional[float] = None
+    median_spec_avg_time_verify_ms: Optional[float] = None
+    p99_spec_avg_time_verify_ms: Optional[float] = None
+    mean_spec_time_forward_draft_extend_after_decode_ms: Optional[float] = None
+    median_spec_time_forward_draft_extend_after_decode_ms: Optional[float] = None
+    p99_spec_time_forward_draft_extend_after_decode_ms: Optional[float] = None
+    # Aggregated derived per-request averages (ms)
+    mean_request_average_draft_time_ms: Optional[float] = None
+    median_request_average_draft_time_ms: Optional[float] = None
+    p99_request_average_draft_time_ms: Optional[float] = None
+    mean_request_average_verify_time_ms: Optional[float] = None
+    median_request_average_verify_time_ms: Optional[float] = None
+    p99_request_average_verify_time_ms: Optional[float] = None
+    mean_request_average_draft_extend_after_decode_ms: Optional[float] = None
+    median_request_average_draft_extend_after_decode_ms: Optional[float] = None
+    p99_request_average_draft_extend_after_decode_ms: Optional[float] = None
 
 
 SHAREGPT_URL = "https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json"
@@ -1093,6 +1188,48 @@ def sample_mmmu_requests(
 
     print(f"\nCreated {len(filtered_dataset)} MMMU prompts")
     return filtered_dataset
+
+
+def load_eval_dataset(
+    dataset_path: str,
+    tokenizer: PreTrainedTokenizerBase,
+    num_samples: Optional[int] = None,
+    default_output_len: int = 256,
+) -> List[DatasetRow]:
+    """Load evaluation dataset from a JSONL file where each row is already
+    a pre-formatted prompt string (chat template applied).
+
+    Supported per-line formats:
+      - {"text": "<prompt>"} or {"prompt": "<prompt>"}
+        Optional per-row output length: output_len/output_length/max_tokens
+      - "<prompt>" (raw string line)
+    """
+    if not os.path.exists(dataset_path):
+        raise ValueError(f"Dataset not found: {dataset_path}")
+
+    dataset: List[DatasetRow] = []
+    with open(dataset_path, "r") as f:
+        all_records = json.load(f)
+        for prompt_str in all_records:
+            output_len: int = default_output_len
+
+            prompt_len = len(tokenizer.encode(prompt_str))
+            dataset.append(
+                DatasetRow(
+                    prompt=prompt_str,
+                    prompt_len=prompt_len,
+                    output_len=output_len,
+                )
+            )
+            if num_samples is not None and len(dataset) >= num_samples:
+                break
+    print(f"Loaded {len(dataset)} prompts from {dataset_path}")
+    print(dataset)
+    if num_samples is not None and len(dataset) < num_samples:
+        print(
+            f"Note: Requested {num_samples} samples but only {len(dataset)} available"
+        )
+    return dataset
 
 
 def sample_sharegpt_requests(
@@ -1630,6 +1767,7 @@ def calculate_metrics(
 ) -> Tuple[BenchmarkMetrics, List[int]]:
     output_lens: List[int] = []
     retokenized_output_lens: List[int] = []
+    cached_tokens_list: List[int] = []
     total_input = 0
     total_input_text = 0
     total_input_vision = 0
@@ -1638,6 +1776,15 @@ def calculate_metrics(
     tpots: List[float] = []
     ttfts: List[float] = []
     e2e_latencies: List[float] = []
+    # Speculative timing per-request arrays (seconds)
+    spec_target_extend: List[float] = []
+    spec_draft_extend: List[float] = []
+    spec_avg_draft: List[float] = []
+    spec_avg_verify: List[float] = []
+    spec_draft_extend_after_decode: List[float] = []
+    req_avg_draft: List[float] = []
+    req_avg_verify: List[float] = []
+    req_avg_draft_extend_after_decode: List[float] = []
     for i in range(len(outputs)):
         if outputs[i].success:
             output_len = outputs[i].output_len
@@ -1646,6 +1793,7 @@ def calculate_metrics(
                 tokenizer.encode(outputs[i].generated_text, add_special_tokens=False)
             )
             retokenized_output_lens.append(retokenized_output_len)
+            cached_tokens_list.append(outputs[i].cached_tokens)
             total_input += input_requests[i].prompt_len
             total_input_text += input_requests[i].text_prompt_len
             total_input_vision += input_requests[i].vision_prompt_len
@@ -1663,10 +1811,45 @@ def calculate_metrics(
 
             e2e_latencies.append(outputs[i].latency)
 
+            # Collect speculative timings if present
+            if outputs[i].spec_time_forward_target_extend is not None:
+                spec_target_extend.append(outputs[i].spec_time_forward_target_extend)
+            if outputs[i].spec_time_forward_draft_extend is not None:
+                spec_draft_extend.append(outputs[i].spec_time_forward_draft_extend)
+            if outputs[i].spec_avg_time_draft is not None:
+                spec_avg_draft.append(outputs[i].spec_avg_time_draft)
+            if outputs[i].spec_avg_time_verify is not None:
+                spec_avg_verify.append(outputs[i].spec_avg_time_verify)
+            if outputs[i].spec_time_forward_draft_extend_after_decode is not None:
+                spec_draft_extend_after_decode.append(
+                    outputs[i].spec_time_forward_draft_extend_after_decode
+                )
+
+            # Compute per-request derived averages using spec_verify_ct multiplications
+            if outputs[i].spec_verify_ct is not None and outputs[i].spec_verify_ct > 0:
+                verify_ct = outputs[i].spec_verify_ct
+                if outputs[i].spec_avg_time_draft is not None:
+                    outputs[i].request_average_draft_time = verify_ct * outputs[i].spec_avg_time_draft
+                if outputs[i].spec_avg_time_verify is not None:
+                    outputs[i].request_average_verify_time = verify_ct * outputs[i].spec_avg_time_verify
+                if outputs[i].spec_time_forward_draft_extend_after_decode is not None:
+                    outputs[i].request_average_draft_extend_after_decode = (
+                        verify_ct * outputs[i].spec_time_forward_draft_extend_after_decode
+                    )
+                if outputs[i].request_average_draft_time is not None:
+                    req_avg_draft.append(outputs[i].request_average_draft_time)
+                if outputs[i].request_average_verify_time is not None:
+                    req_avg_verify.append(outputs[i].request_average_verify_time)
+                if outputs[i].request_average_draft_extend_after_decode is not None:
+                    req_avg_draft_extend_after_decode.append(
+                        outputs[i].request_average_draft_extend_after_decode
+                    )
+
             completed += 1
         else:
             output_lens.append(0)
             retokenized_output_lens.append(0)
+            cached_tokens_list.append(0)
 
     if completed == 0:
         warnings.warn(
@@ -1681,10 +1864,12 @@ def calculate_metrics(
         total_input_vision=total_input_vision,
         total_output=sum(output_lens),
         total_output_retokenized=sum(retokenized_output_lens),
+        total_cached_tokens=sum(cached_tokens_list),
         request_throughput=completed / dur_s,
         input_throughput=total_input / dur_s,
         output_throughput=sum(output_lens) / dur_s,
         output_throughput_retokenized=sum(retokenized_output_lens) / dur_s,
+        cached_tokens_throughput=sum(cached_tokens_list) / dur_s,
         total_throughput=(total_input + sum(output_lens)) / dur_s,
         total_throughput_retokenized=(total_input + sum(retokenized_output_lens))
         / dur_s,
@@ -1709,6 +1894,57 @@ def calculate_metrics(
         p99_e2e_latency_ms=np.percentile(e2e_latencies, 99) * 1000,
         concurrency=np.sum(e2e_latencies) / dur_s,
     )
+
+    # Attach aggregated speculative metrics (convert seconds -> ms)
+    def _to_ms(arr: List[float]) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+        if not arr:
+            return None, None, None
+        return (
+            float(np.mean(arr)) * 1000.0,
+            float(np.median(arr)) * 1000.0,
+            float(np.percentile(arr, 99)) * 1000.0,
+        )
+
+    (
+        metrics.mean_spec_time_forward_target_extend_ms,
+        metrics.median_spec_time_forward_target_extend_ms,
+        metrics.p99_spec_time_forward_target_extend_ms,
+    ) = _to_ms(spec_target_extend)
+    (
+        metrics.mean_spec_time_forward_draft_extend_ms,
+        metrics.median_spec_time_forward_draft_extend_ms,
+        metrics.p99_spec_time_forward_draft_extend_ms,
+    ) = _to_ms(spec_draft_extend)
+    (
+        metrics.mean_spec_avg_time_draft_ms,
+        metrics.median_spec_avg_time_draft_ms,
+        metrics.p99_spec_avg_time_draft_ms,
+    ) = _to_ms(spec_avg_draft)
+    (
+        metrics.mean_spec_avg_time_verify_ms,
+        metrics.median_spec_avg_time_verify_ms,
+        metrics.p99_spec_avg_time_verify_ms,
+    ) = _to_ms(spec_avg_verify)
+    (
+        metrics.mean_spec_time_forward_draft_extend_after_decode_ms,
+        metrics.median_spec_time_forward_draft_extend_after_decode_ms,
+        metrics.p99_spec_time_forward_draft_extend_after_decode_ms,
+    ) = _to_ms(spec_draft_extend_after_decode)
+    (
+        metrics.mean_request_average_draft_time_ms,
+        metrics.median_request_average_draft_time_ms,
+        metrics.p99_request_average_draft_time_ms,
+    ) = _to_ms(req_avg_draft)
+    (
+        metrics.mean_request_average_verify_time_ms,
+        metrics.median_request_average_verify_time_ms,
+        metrics.p99_request_average_verify_time_ms,
+    ) = _to_ms(req_avg_verify)
+    (
+        metrics.mean_request_average_draft_extend_after_decode_ms,
+        metrics.median_request_average_draft_extend_after_decode_ms,
+        metrics.p99_request_average_draft_extend_after_decode_ms,
+    ) = _to_ms(req_avg_draft_extend_after_decode)
 
     return metrics, output_lens
 
@@ -1966,6 +2202,7 @@ async def benchmark(
             "Total generated tokens (retokenized):", metrics.total_output_retokenized
         )
     )
+    print("{:<40} {:<10}".format("Total cached tokens:", metrics.total_cached_tokens))
     print(
         "{:<40} {:<10.2f}".format(
             "Request throughput (req/s):", metrics.request_throughput
@@ -1983,12 +2220,184 @@ async def benchmark(
     )
     print(
         "{:<40} {:<10.2f}".format(
+            "Cached tokens throughput (tok/s):", metrics.cached_tokens_throughput
+        )
+    )
+    print(
+        "{:<40} {:<10.2f}".format(
             "Total token throughput (tok/s):", metrics.total_throughput
         )
     )
     print("{:<40} {:<10.2f}".format("Concurrency:", metrics.concurrency))
     if accept_length:
         print("{:<40} {:<10.2f}".format("Accept length:", accept_length))
+    # Print speculative decoding metrics if available
+    if any(
+        v is not None
+        for v in [
+            metrics.mean_spec_time_forward_target_extend_ms,
+            metrics.mean_spec_time_forward_draft_extend_ms,
+            metrics.mean_spec_avg_time_draft_ms,
+            metrics.mean_spec_avg_time_verify_ms,
+            metrics.mean_spec_time_forward_draft_extend_after_decode_ms,
+            metrics.mean_request_average_draft_time_ms,
+            metrics.mean_request_average_verify_time_ms,
+            metrics.mean_request_average_draft_extend_after_decode_ms,
+        ]
+    ):
+        print("{s:{c}^{n}}".format(s="Speculative Decoding Metrics", n=50, c="-"))
+        if metrics.mean_spec_time_forward_target_extend_ms is not None:
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "Mean Target Extend (ms):",
+                    metrics.mean_spec_time_forward_target_extend_ms,
+                )
+            )
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "Median Target Extend (ms):",
+                    metrics.median_spec_time_forward_target_extend_ms,
+                )
+            )
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "P99 Target Extend (ms):",
+                    metrics.p99_spec_time_forward_target_extend_ms,
+                )
+            )
+        if metrics.mean_spec_time_forward_draft_extend_ms is not None:
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "Mean Draft Extend (ms):",
+                    metrics.mean_spec_time_forward_draft_extend_ms,
+                )
+            )
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "Median Draft Extend (ms):",
+                    metrics.median_spec_time_forward_draft_extend_ms,
+                )
+            )
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "P99 Draft Extend (ms):",
+                    metrics.p99_spec_time_forward_draft_extend_ms,
+                )
+            )
+        if metrics.mean_spec_avg_time_draft_ms is not None:
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "Mean Avg Draft (ms):",
+                    metrics.mean_spec_avg_time_draft_ms,
+                )
+            )
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "Median Avg Draft (ms):",
+                    metrics.median_spec_avg_time_draft_ms,
+                )
+            )
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "P99 Avg Draft (ms):",
+                    metrics.p99_spec_avg_time_draft_ms,
+                )
+            )
+        if metrics.mean_spec_avg_time_verify_ms is not None:
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "Mean Avg Verify (ms):",
+                    metrics.mean_spec_avg_time_verify_ms,
+                )
+            )
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "Median Avg Verify (ms):",
+                    metrics.median_spec_avg_time_verify_ms,
+                )
+            )
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "P99 Avg Verify (ms):",
+                    metrics.p99_spec_avg_time_verify_ms,
+                )
+            )
+        if metrics.mean_spec_time_forward_draft_extend_after_decode_ms is not None:
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "Mean Draft Extend After Decode (ms):",
+                    metrics.mean_spec_time_forward_draft_extend_after_decode_ms,
+                )
+            )
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "Median Draft Extend After Decode (ms):",
+                    metrics.median_spec_time_forward_draft_extend_after_decode_ms,
+                )
+            )
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "P99 Draft Extend After Decode (ms):",
+                    metrics.p99_spec_time_forward_draft_extend_after_decode_ms,
+                )
+            )
+        if metrics.mean_request_average_draft_time_ms is not None:
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "Mean Request Avg Draft (ms):",
+                    metrics.mean_request_average_draft_time_ms,
+                )
+            )
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "Median Request Avg Draft (ms):",
+                    metrics.median_request_average_draft_time_ms,
+                )
+            )
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "P99 Request Avg Draft (ms):",
+                    metrics.p99_request_average_draft_time_ms,
+                )
+            )
+        if metrics.mean_request_average_verify_time_ms is not None:
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "Mean Request Avg Verify (ms):",
+                    metrics.mean_request_average_verify_time_ms,
+                )
+            )
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "Median Request Avg Verify (ms):",
+                    metrics.median_request_average_verify_time_ms,
+                )
+            )
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "P99 Request Avg Verify (ms):",
+                    metrics.p99_request_average_verify_time_ms,
+                )
+            )
+        if metrics.mean_request_average_draft_extend_after_decode_ms is not None:
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "Mean Req Avg Draft Extend After Decode (ms):",
+                    metrics.mean_request_average_draft_extend_after_decode_ms,
+                )
+            )
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "Median Req Avg Draft Extend After Decode (ms):",
+                    metrics.median_request_average_draft_extend_after_decode_ms,
+                )
+            )
+            print(
+                "{:<40} {:<10.2f}".format(
+                    "P99 Req Avg Draft Extend After Decode (ms):",
+                    metrics.p99_request_average_draft_extend_after_decode_ms,
+                )
+            )
     print("{s:{c}^{n}}".format(s="End-to-End Latency", n=50, c="-"))
     print(
         "{:<40} {:<10.2f}".format("Mean E2E Latency (ms):", metrics.mean_e2e_latency_ms)
@@ -2055,6 +2464,32 @@ async def benchmark(
             "p99_itl_ms": metrics.p99_itl_ms,
             "concurrency": metrics.concurrency,
             "accept_length": accept_length,
+            # Aggregated speculative metrics
+            "mean_spec_time_forward_target_extend_ms": metrics.mean_spec_time_forward_target_extend_ms,
+            "median_spec_time_forward_target_extend_ms": metrics.median_spec_time_forward_target_extend_ms,
+            "p99_spec_time_forward_target_extend_ms": metrics.p99_spec_time_forward_target_extend_ms,
+            "mean_spec_time_forward_draft_extend_ms": metrics.mean_spec_time_forward_draft_extend_ms,
+            "median_spec_time_forward_draft_extend_ms": metrics.median_spec_time_forward_draft_extend_ms,
+            "p99_spec_time_forward_draft_extend_ms": metrics.p99_spec_time_forward_draft_extend_ms,
+            "mean_spec_avg_time_draft_ms": metrics.mean_spec_avg_time_draft_ms,
+            "median_spec_avg_time_draft_ms": metrics.median_spec_avg_time_draft_ms,
+            "p99_spec_avg_time_draft_ms": metrics.p99_spec_avg_time_draft_ms,
+            "mean_spec_avg_time_verify_ms": metrics.mean_spec_avg_time_verify_ms,
+            "median_spec_avg_time_verify_ms": metrics.median_spec_avg_time_verify_ms,
+            "p99_spec_avg_time_verify_ms": metrics.p99_spec_avg_time_verify_ms,
+            "mean_spec_time_forward_draft_extend_after_decode_ms": metrics.mean_spec_time_forward_draft_extend_after_decode_ms,
+            "median_spec_time_forward_draft_extend_after_decode_ms": metrics.median_spec_time_forward_draft_extend_after_decode_ms,
+            "p99_spec_time_forward_draft_extend_after_decode_ms": metrics.p99_spec_time_forward_draft_extend_after_decode_ms,
+            # Aggregated derived per-request averages
+            "mean_request_average_draft_time_ms": metrics.mean_request_average_draft_time_ms,
+            "median_request_average_draft_time_ms": metrics.median_request_average_draft_time_ms,
+            "p99_request_average_draft_time_ms": metrics.p99_request_average_draft_time_ms,
+            "mean_request_average_verify_time_ms": metrics.mean_request_average_verify_time_ms,
+            "median_request_average_verify_time_ms": metrics.median_request_average_verify_time_ms,
+            "p99_request_average_verify_time_ms": metrics.p99_request_average_verify_time_ms,
+            "mean_request_average_draft_extend_after_decode_ms": metrics.mean_request_average_draft_extend_after_decode_ms,
+            "median_request_average_draft_extend_after_decode_ms": metrics.median_request_average_draft_extend_after_decode_ms,
+            "p99_request_average_draft_extend_after_decode_ms": metrics.p99_request_average_draft_extend_after_decode_ms,
         }
     else:
         print(f"Error running benchmark for request rate: {request_rate}")
@@ -2083,7 +2518,31 @@ async def benchmark(
         "output_lens": output_lens,
         "ttfts": [output.ttft for output in outputs],
         "itls": [output.itl for output in outputs],
+        # Per-request speculative metrics captured from meta_info (seconds)
+        "spec_time_forward_target_extend": [
+            output.spec_time_forward_target_extend for output in outputs
+        ],
+        "spec_time_forward_draft_extend": [
+            output.spec_time_forward_draft_extend for output in outputs
+        ],
+        "spec_avg_time_draft": [output.spec_avg_time_draft for output in outputs],
+        "spec_avg_time_verify": [output.spec_avg_time_verify for output in outputs],
+        "spec_time_forward_draft_extend_after_decode": [
+            output.spec_time_forward_draft_extend_after_decode for output in outputs
+        ],
+        "spec_verify_ct": [output.spec_verify_ct for output in outputs],
+        # Derived per-request averages (seconds)
+        "request_average_draft_time": [
+            output.request_average_draft_time for output in outputs
+        ],
+        "request_average_verify_time": [
+            output.request_average_verify_time for output in outputs
+        ],
+        "request_average_draft_extend_after_decode": [
+            output.request_average_draft_extend_after_decode for output in outputs
+        ],
         "generated_texts": [output.generated_text for output in outputs],
+        "cached_tokens": [output.cached_tokens for output in outputs],
         "errors": [output.error for output in outputs],
     }
 
@@ -2343,6 +2802,7 @@ if __name__ == "__main__":
             "mmmu",
             "image",
             "mooncake",
+            "custom",
         ],
         help="Name of the dataset to benchmark on.",
     )

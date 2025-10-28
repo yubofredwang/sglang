@@ -253,12 +253,9 @@ class EAGLEWorker(TpModelWorker):
                 batch
             )
             toc = time.perf_counter()
-            # Accumulate per-request total time for target extend stage for this batch
             dur_target_extend = toc - tic
             for req in batch.reqs:
                 req.spec_time_forward_target_extend_total += dur_target_extend
-            # Accumulate batch-level target-extend time
-            # print(f"Target extend time: {(toc - tic) * 1000} ms")
 
             with self.draft_tp_context(self.draft_model_runner.tp_group):
                 tic2 = time.perf_counter()
@@ -266,11 +263,9 @@ class EAGLEWorker(TpModelWorker):
                     batch, logits_output.hidden_states, next_token_ids, seq_lens_cpu
                 )
                 toc2 = time.perf_counter()
-                # Accumulate per-request total time for draft extend stage for this batch
                 dur_draft_extend = toc2 - tic2
                 for req in batch.reqs:
                     req.spec_time_forward_draft_extend_total += dur_draft_extend
-                # print(f"Draft extend time: {(toc2 - tic2) * 1000} ms")
             return GenerationBatchResult(
                 logits_output=logits_output,
                 next_token_ids=next_token_ids,
@@ -282,8 +277,6 @@ class EAGLEWorker(TpModelWorker):
                 tic_draft = time.perf_counter()
                 spec_info = self.draft(batch)
                 toc_draft = time.perf_counter()
-                # print(f"Draft time: {(toc_draft - tic_draft) * 1000} ms")
-                # Accumulate per-request total time for draft stage for this batch
                 dur_draft = toc_draft - tic_draft
                 for req in batch.reqs:
                     req.spec_time_draft_total += dur_draft
@@ -293,8 +286,6 @@ class EAGLEWorker(TpModelWorker):
                 self.verify(batch, spec_info)
             )
             toc_verify = time.perf_counter()
-            # print(f"Verify time: {(toc_verify - tic_verify) * 1000} ms")
-             # Accumulate per-request total time for verify stage for this batch
             dur_verify = toc_verify - tic_verify
             for req in batch.reqs:
                 req.spec_time_verify_total += dur_verify
@@ -311,8 +302,6 @@ class EAGLEWorker(TpModelWorker):
                     tic_ext_after = time.perf_counter()
                     self.forward_draft_extend_after_decode(batch)
                     toc_ext_after = time.perf_counter()
-                    # print(f"Draft extend after decode time: {(toc_ext_after - tic_ext_after) * 1000} ms")
-                    # Accumulate per-request total time for draft extend after decode stage for this batch
                     dur_ext_after = toc_ext_after - tic_ext_after
                     for req in batch.reqs:
                         req.spec_time_forward_draft_extend_after_decode_total += dur_ext_after

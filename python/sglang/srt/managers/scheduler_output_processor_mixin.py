@@ -728,11 +728,11 @@ class SchedulerOutputProcessorMixin:
         spec_verify_ct = []
         spec_accepted_tokens = []
         # Speculative per-stage avg times (seconds)
-        spec_avg_time_forward_target_extend = []
-        spec_avg_time_forward_draft_extend = []
+        spec_time_forward_target_extend = []
+        spec_time_forward_draft_extend = []
         spec_avg_time_draft = []
         spec_avg_time_verify = []
-        spec_avg_time_forward_draft_extend_after_decode = []
+        spec_time_forward_draft_extend_after_decode = []
         output_hidden_states = None
 
         if return_logprob:
@@ -839,11 +839,11 @@ class SchedulerOutputProcessorMixin:
                     spec_accepted_tokens.append(req.spec_accepted_tokens)
                     # Compute per-request average stage times
                     denom = req.spec_verify_ct if req.spec_verify_ct > 0 else 1
-                    spec_avg_time_forward_target_extend.append(
-                        req.spec_time_forward_target_extend_total / denom
+                    spec_time_forward_target_extend.append(
+                        req.spec_time_forward_target_extend_total
                     )
-                    spec_avg_time_forward_draft_extend.append(
-                        req.spec_time_forward_draft_extend_total / denom
+                    spec_time_forward_draft_extend.append(
+                        req.spec_time_forward_draft_extend_total
                     )
                     spec_avg_time_draft.append(
                         req.spec_time_draft_total / denom
@@ -851,7 +851,7 @@ class SchedulerOutputProcessorMixin:
                     spec_avg_time_verify.append(
                         req.spec_time_verify_total / denom
                     )
-                    spec_avg_time_forward_draft_extend_after_decode.append(
+                    spec_time_forward_draft_extend_after_decode.append(
                         req.spec_time_forward_draft_extend_after_decode_total / denom
                     )
 
@@ -955,11 +955,11 @@ class SchedulerOutputProcessorMixin:
                     cached_tokens,
                     spec_verify_ct,
                     spec_accepted_tokens,
-                    spec_avg_time_forward_target_extend,
-                    spec_avg_time_forward_draft_extend,
+                    spec_time_forward_target_extend,
+                    spec_time_forward_draft_extend,
                     spec_avg_time_draft,
                     spec_avg_time_verify,
-                    spec_avg_time_forward_draft_extend_after_decode,
+                    spec_time_forward_draft_extend_after_decode,
                     input_token_logprobs_val,
                     input_token_logprobs_idx,
                     output_token_logprobs_val,
